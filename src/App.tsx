@@ -1,4 +1,5 @@
 import { Analytics } from "@vercel/analytics/next"
+import { SpeedInsights } from "@vercel/speed-insights/next"
 import { useState, useEffect, useCallback, useRef } from 'react'
 
 import { PRESETS } from './types'
@@ -98,6 +99,8 @@ const App = () => {
     <div className={`min-h-screen flex flex-col transition-colors duration-500 ${dark ? 'bg-forest-950' : 'bg-cream'}`}>
       {/* Vercel Analytics Tag */}
       <Analytics />
+      {/* Vercel Speed Insights Tag */}
+      <SpeedInsights />
 
       {/* ── Navbar ─────────────────────────────────────── */}
       <header className="flex items-center justify-end px-6 sm:px-10 py-5">
