@@ -7,7 +7,8 @@ export interface Preset {
 }
 
 export const PRESETS: Preset[] = [
-  { label: 'Short Task (30m work + 5m rest)',  workMinutes: 30, restMinutes: 5  },
-  { label: 'Medium Task (45m work + 10m rest)', workMinutes: 45, restMinutes: 10 },
-  { label: 'Hard Task (60m work + 10m rest)',   workMinutes: 60, restMinutes: 10 },
+  { label: 'The Classic (25m work + 5m rest)',  workMinutes: 25, restMinutes: 5  },
+  { label: 'The Dash (15m work + 5m rest)', workMinutes: 15, restMinutes: 5 },
+  { label: 'The Remix (45m work + 15m rest)', workMinutes: 45, restMinutes: 15 },
+  { label: 'The Deep Dive (50m work + 10m rest)',   workMinutes: 50, restMinutes: 10 },
 ]

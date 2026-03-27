@@ -1,167 +1,174 @@
 import { useRef, useCallback } from 'react'
 
-// Procedurally generated rain + lofi ambience using Web Audio API
-// No external audio files — zero copyright concerns
+// ── Sound mode type ───────────────────────────────────────────────────────────
 
-export function useAudio() {
-  const ctxRef = useRef<AudioContext | null>(null)
-  const nodesRef = useRef<AudioNode[]>([])
-  const masterRef = useRef<GainNode | null>(null)
+export type SoundMode = 'restaurant' | 'rain' | 'birds'
 
+export interface SoundOption {
+  id: SoundMode
+  label: string
+  emoji: string
+  file: string
+  description: string
+}
+
+export const SOUND_OPTIONS: SoundOption[] = [
+  {
+    id: 'restaurant',
+    label: 'Restaurant',
+    emoji: '☕',
+    file: '/audio/restaurant-ambience.mp3',
+    description: 'Warm café chatter & clinking cups.',
+  },
+  {
+    id: 'rain',
+    label: 'Rain',
+    emoji: '🌧️',
+    file: '/audio/rain-ambience.mp3',
+    description: 'Steady rainfall with distant thunder.',
+  },
+  {
+    id: 'birds',
+    label: 'Birds',
+    emoji: '🐦',
+    file: '/audio/beach-ambience.mp3',
+    description: 'Morning birdsong in a quiet forest.',
+  },
+]
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+export type AudioStatus = 'idle' | 'loading' | 'playing' | 'error'
+
+export interface UseAudioReturn {
+  play: (mode: SoundMode) => Promise<void>
+  stop: () => void
+  statusRef: React.MutableRefObject<AudioStatus>
+}
+
+// ── Hook ──────────────────────────────────────────────────────────────────────
+
+export function useAudio(): UseAudioReturn {
+  const ctxRef         = useRef<AudioContext | null>(null)
+  const sourceRef      = useRef<AudioBufferSourceNode | null>(null)
+  const masterRef      = useRef<GainNode | null>(null)
+  const bufferCacheRef = useRef<Partial<Record<SoundMode, AudioBuffer>>>({})
+  const statusRef      = useRef<AudioStatus>('idle')
+
+  // ── Stop & tear down ───────────────────────────────────────────────────────
   const stop = useCallback(() => {
-    nodesRef.current.forEach(n => {
-      try { (n as AudioScheduledSourceNode).stop?.() } catch (_) {}
-    })
-    nodesRef.current = []
-    masterRef.current?.disconnect()
-    masterRef.current = null
-    ctxRef.current?.close()
-    ctxRef.current = null
+    // Fade out gracefully over 0.8 s then destroy context
+    if (masterRef.current && ctxRef.current) {
+      const gain = masterRef.current
+      const ctx  = ctxRef.current
+      gain.gain.cancelScheduledValues(ctx.currentTime)
+      gain.gain.setValueAtTime(gain.gain.value, ctx.currentTime)
+      gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.8)
+    }
+    setTimeout(() => {
+      try { sourceRef.current?.stop()      } catch (_) {}
+      try { masterRef.current?.disconnect() } catch (_) {}
+      try { ctxRef.current?.close()         } catch (_) {}
+      sourceRef.current = null
+      masterRef.current = null
+      ctxRef.current    = null
+      statusRef.current = 'idle'
+    }, 850)
   }, [])
 
-  const play = useCallback(() => {
-    stop()
+  // ── Fetch + decode with per-mode cache ────────────────────────────────────
+  const getBuffer = useCallback(async (
+    ctx: AudioContext,
+    mode: SoundMode,
+  ): Promise<AudioBuffer> => {
+    if (bufferCacheRef.current[mode]) {
+      return bufferCacheRef.current[mode]!
+    }
+    const option = SOUND_OPTIONS.find(o => o.id === mode)!
+    const response = await fetch(option.file)
+    if (!response.ok) {
+      throw new Error(`Audio fetch failed: ${response.status} — ${option.file}`)
+    }
+    const arrayBuffer  = await response.arrayBuffer()
+    const audioBuffer  = await ctx.decodeAudioData(arrayBuffer)
+    bufferCacheRef.current[mode] = audioBuffer
+    return audioBuffer
+  }, [])
+
+  // ── Play ──────────────────────────────────────────────────────────────────
+  const play = useCallback(async (mode: SoundMode) => {
+    // Hard-stop any previous session immediately (new track starts right away)
+    try { sourceRef.current?.stop()      } catch (_) {}
+    try { masterRef.current?.disconnect() } catch (_) {}
+    try { ctxRef.current?.close()         } catch (_) {}
+    sourceRef.current = null
+    masterRef.current = null
+    ctxRef.current    = null
+
+    statusRef.current = 'loading'
+
     const ctx = new AudioContext()
     ctxRef.current = ctx
 
+    // Master gain — starts silent for smooth fade-in
     const master = ctx.createGain()
-    master.gain.value = 0
+    master.gain.setValueAtTime(0, ctx.currentTime)
     master.connect(ctx.destination)
     masterRef.current = master
 
-    // Fade in
-    master.gain.linearRampToValueAtTime(0.55, ctx.currentTime + 3)
+    try {
+      const buffer = await getBuffer(ctx, mode)
 
-    // ── Rain noise ────────────────────────────────────────────────────
-    const bufferSize = ctx.sampleRate * 4
-    const rainBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate)
-    const data = rainBuffer.getChannelData(0)
-    for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1
+      // Guard: context may have been replaced while fetching
+      if (ctxRef.current !== ctx) return
 
-    const rainSrc = ctx.createBufferSource()
-    rainSrc.buffer = rainBuffer
-    rainSrc.loop = true
+      const source  = ctx.createBufferSource()
+      source.buffer = buffer
+      source.loop   = true // Loop indefinitely until stopped
 
-    // Band-pass to simulate rain frequencies (1k–8k Hz)
-    const rainBp = ctx.createBiquadFilter()
-    rainBp.type = 'bandpass'
-    rainBp.frequency.value = 3000
-    rainBp.Q.value = 0.4
-
-    const rainGain = ctx.createGain()
-    rainGain.gain.value = 0.18
-
-    rainSrc.connect(rainBp).connect(rainGain).connect(master)
-    rainSrc.start()
-    nodesRef.current.push(rainSrc)
-
-    // ── Deep rumble / thunder undertone ──────────────────────────────
-    const rumbleSrc = ctx.createBufferSource()
-    rumbleSrc.buffer = rainBuffer
-    rumbleSrc.loop = true
-    const rumbleLp = ctx.createBiquadFilter()
-    rumbleLp.type = 'lowpass'
-    rumbleLp.frequency.value = 80
-    const rumbleGain = ctx.createGain()
-    rumbleGain.gain.value = 0.5
-    rumbleSrc.connect(rumbleLp).connect(rumbleGain).connect(master)
-    rumbleSrc.start()
-    nodesRef.current.push(rumbleSrc)
-
-    // ── Lo-fi chord pads (detuned oscillators) ────────────────────────
-    // Cmaj7 voicing: C3, E3, G3, B3 → 130, 164, 196, 246 Hz
-    const chordFreqs = [130.81, 164.81, 196.00, 246.94]
-    chordFreqs.forEach((freq, i) => {
-      const osc1 = ctx.createOscillator()
-      const osc2 = ctx.createOscillator()
-      osc1.type = 'sine'
-      osc2.type = 'sine'
-      osc1.frequency.value = freq
-      osc2.frequency.value = freq * 1.003 // slight detune for warmth
-
-      const env = ctx.createGain()
-      env.gain.value = 0
-      env.gain.linearRampToValueAtTime(0.045, ctx.currentTime + 4 + i * 0.5)
-
-      // LFO tremolo
-      const lfo = ctx.createOscillator()
-      const lfoGain = ctx.createGain()
-      lfo.frequency.value = 0.15
-      lfoGain.gain.value = 0.012
-      lfo.connect(lfoGain).connect(env.gain)
-      lfo.start()
-
-      osc1.connect(env)
-      osc2.connect(env)
-      env.connect(master)
-      osc1.start()
-      osc2.start()
-      nodesRef.current.push(osc1, osc2, lfo)
-    })
-
-    // ── Sub-bass drone (F1 = 43.65 Hz) ──────────────────────────────
-    const bass = ctx.createOscillator()
-    bass.type = 'sine'
-    bass.frequency.value = 43.65
-    const bassGain = ctx.createGain()
-    bassGain.gain.value = 0.12
-    bass.connect(bassGain).connect(master)
-    bass.start()
-    nodesRef.current.push(bass)
-
-    // ── Soft hi-hat clicks ────────────────────────────────────────────
-    function scheduleHihat(time: number) {
-      if (!ctxRef.current) return
-      const buf = ctx.createBuffer(1, ctx.sampleRate * 0.04, ctx.sampleRate)
-      const d = buf.getChannelData(0)
-      for (let i = 0; i < d.length; i++) {
-        const t = i / ctx.sampleRate
-        d[i] = (Math.random() * 2 - 1) * Math.exp(-t * 120)
+      // Light EQ shaping per ambience type
+      const eq = ctx.createBiquadFilter()
+      switch (mode) {
+        case 'restaurant':
+          // Tame harsh high-mids from voices
+          eq.type            = 'highshelf'
+          eq.frequency.value = 5000
+          eq.gain.value      = -4
+          break
+        case 'rain':
+          // Boost low-end rumble slightly
+          eq.type            = 'lowshelf'
+          eq.frequency.value = 200
+          eq.gain.value      = 3
+          break
+        case 'birds':
+          // Remove low-frequency handling noise
+          eq.type            = 'highpass'
+          eq.frequency.value = 120
+          break
       }
-      const src = ctx.createBufferSource()
-      src.buffer = buf
-      const hp = ctx.createBiquadFilter()
-      hp.type = 'highpass'
-      hp.frequency.value = 8000
-      const g = ctx.createGain()
-      g.gain.value = 0.06
-      src.connect(hp).connect(g).connect(master)
-      src.start(time)
 
-      // schedule next — 8th notes at ~75 bpm (0.4s apart)
-      const bpm = 75
-      const interval = 60 / bpm / 2
-      setTimeout(() => scheduleHihat(ctx.currentTime + interval), interval * 900)
+      source.connect(eq)
+      eq.connect(master)
+      source.start(0)
+      sourceRef.current = source
+      statusRef.current = 'playing'
+
+      // Fade in over 2.5 s
+      master.gain.linearRampToValueAtTime(0.75, ctx.currentTime + 2.5)
+
+      source.onended = () => {
+        if (statusRef.current === 'playing') statusRef.current = 'idle'
+      }
+    } catch (err) {
+      console.error('[useAudio] Playback error:', err)
+      statusRef.current = 'error'
+      try { ctx.close() } catch (_) {}
+      if (ctxRef.current === ctx) {
+        ctxRef.current = null
+      }
     }
-    scheduleHihat(ctx.currentTime + 2)
+  }, [getBuffer])
 
-    // ── Occasional thunder accent ────────────────────────────────────
-    function scheduleThunder() {
-      if (!ctxRef.current) return
-      const delay = 20000 + Math.random() * 40000
-      setTimeout(() => {
-        if (!ctxRef.current) return
-        const tbuf = ctx.createBuffer(1, ctx.sampleRate * 3, ctx.sampleRate)
-        const td = tbuf.getChannelData(0)
-        for (let i = 0; i < td.length; i++) {
-          const t = i / ctx.sampleRate
-          td[i] = (Math.random() * 2 - 1) * Math.exp(-t * 1.5) * 0.6
-        }
-        const tsrc = ctx.createBufferSource()
-        tsrc.buffer = tbuf
-        const tlp = ctx.createBiquadFilter()
-        tlp.type = 'lowpass'
-        tlp.frequency.value = 300
-        const tg = ctx.createGain()
-        tg.gain.value = 0.7
-        tsrc.connect(tlp).connect(tg).connect(master)
-        tsrc.start()
-        nodesRef.current.push(tsrc)
-        scheduleThunder()
-      }, delay)
-    }
-    scheduleThunder()
-  }, [stop])
-
-  return { play, stop }
+  return { play, stop, statusRef }
 }
