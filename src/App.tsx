@@ -6,6 +6,7 @@ import { PRESETS } from './types'
 import type { Phase } from './types'
 import { useAudio, SoundMode } from './useAudio'
 
+import QuoteDisplay from "./components/quote-display"
 import CircularTimer from './components/circular-timer'
 import SoundSelector from './components/ambience-selector'
 import { MoonIcon, PauseIcon, PlayIcon, SunIcon } from './components/icons'
@@ -121,6 +122,8 @@ const App = () => {
           <h1 className={`font-bold text-3xl sm:text-4xl md:text-5xl ${dark ? 'text-forest-200' : 'text-forest-800'}`}>
             Pomodoro
           </h1>
+          {/* Today's Quote */}
+          <QuoteDisplay dark={dark} />
         </div>
 
         {/* Timer */}
