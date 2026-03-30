@@ -6,7 +6,7 @@ A clean, distraction-free Pomodoro timer with ambient soundscapes and motivation
 
 - **4 Pomodoro presets** — The Classic (25/5), The Dash (15/5), The Remix (45/15), The Deep Dive (50/10)
 - **Automatic phase transitions** — work session flows into rest session seamlessly
-- **Ambient soundscapes** — Rain, Restaurant, and Birds (Web Audio API with graceful fade-out)
+- **Ambient soundscapes** — Rain, Restaurant, and Nature (Web Audio API with graceful fade-out)
 - **Live sound swapping** — change ambience mid-session without interruption
 - **Motivational quotes** — fetched from ZenQuotes via a serverless proxy
 - **Dark / light mode** — toggle with a single click
@@ -79,7 +79,7 @@ Sound options are defined in [`src/useAudio.ts`](src/useAudio.ts). Each entry ma
 |--------------|------------|--------------------------------|
 | `rain`       | Rain       | `public/audio/rain-ambience.mp3`        |
 | `restaurant` | Restaurant | `public/audio/restaurant-ambience.mp3`  |
-| `birds`      | Birds      | `public/audio/beach-ambience.mp3`       |
+| `nature`      | Nature      | `public/audio/beach-ambience.mp3`       |
 
 To add a new sound, place the `.mp3` in `public/audio/` and add an entry to the `SOUND_OPTIONS` array.
 

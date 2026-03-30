@@ -1,14 +1,44 @@
 import { useRef, useCallback } from 'react'
 
+// ── YouTube IFrame API types ──────────────────────────────────────────────────
+
+declare global {
+  interface Window {
+    YT: {
+      Player: new (el: HTMLElement, opts: YTPlayerOptions) => YTPlayer
+    }
+    onYouTubeIframeAPIReady: () => void
+  }
+}
+
+interface YTPlayerOptions {
+  height: string
+  width: string
+  videoId: string
+  playerVars?: Record<string, number>
+  events?: {
+    onReady?: (e: { target: YTPlayer }) => void
+    onStateChange?: (e: { data: number }) => void
+    onError?: () => void
+  }
+}
+
+interface YTPlayer {
+  playVideo(): void
+  stopVideo(): void
+  setVolume(vol: number): void
+  destroy(): void
+}
+
 // ── Sound mode type ───────────────────────────────────────────────────────────
 
-export type SoundMode = 'restaurant' | 'rain' | 'birds'
+export type SoundMode = 'restaurant' | 'rain' | 'nature'
 
 export interface SoundOption {
   id: SoundMode
   label: string
   emoji: string
-  file: string
+  videoId: string
   description: string
 }
 
@@ -17,22 +47,22 @@ export const SOUND_OPTIONS: SoundOption[] = [
     id: 'restaurant',
     label: 'Restaurant',
     emoji: '☕',
-    file: '/audio/restaurant-ambience.mp3',
+    videoId: '4EBL7EtwauY',
     description: 'Warm café chatter & clinking cups.',
   },
   {
     id: 'rain',
     label: 'Rain',
     emoji: '🌧️',
-    file: '/audio/rain-ambience.mp3',
+    videoId: 'y4h_4NIOxuY',
     description: 'Steady rainfall with distant thunder.',
   },
   {
-    id: 'birds',
-    label: 'Birds',
-    emoji: '🐦',
-    file: '/audio/beach-ambience.mp3',
-    description: 'Morning birdsong in a quiet forest.',
+    id: 'nature',
+    label: 'Nature',
+    emoji: '🌲',
+    videoId: 'xuu1pBvCkz0',
+    description: 'Birdsong, rustling leaves, and flowing water.',
   },
 ]
 
@@ -46,129 +76,100 @@ export interface UseAudioReturn {
   statusRef: React.MutableRefObject<AudioStatus>
 }
 
+// ── YT IFrame API singleton loader ────────────────────────────────────────────
+
+let ytApiReady = false
+let ytApiLoading = false
+const ytReadyCallbacks: Array<() => void> = []
+
+function loadYTApi(): Promise<void> {
+  return new Promise(resolve => {
+    if (ytApiReady) { resolve(); return }
+    ytReadyCallbacks.push(resolve)
+    if (ytApiLoading) return
+    ytApiLoading = true
+    const tag = document.createElement('script')
+    tag.src = 'https://www.youtube.com/iframe_api'
+    document.head.appendChild(tag)
+    window.onYouTubeIframeAPIReady = () => {
+      ytApiReady = true
+      ytReadyCallbacks.forEach(cb => cb())
+      ytReadyCallbacks.length = 0
+    }
+  })
+}
+
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
 export function useAudio(): UseAudioReturn {
-  const ctxRef         = useRef<AudioContext | null>(null)
-  const sourceRef      = useRef<AudioBufferSourceNode | null>(null)
-  const masterRef      = useRef<GainNode | null>(null)
-  const bufferCacheRef = useRef<Partial<Record<SoundMode, AudioBuffer>>>({})
-  const statusRef      = useRef<AudioStatus>('idle')
+  const playerRef    = useRef<YTPlayer | null>(null)
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const statusRef    = useRef<AudioStatus>('idle')
 
-  // ── Stop & tear down ───────────────────────────────────────────────────────
   const stop = useCallback(() => {
-    // Fade out gracefully over 0.8 s then destroy context
-    if (masterRef.current && ctxRef.current) {
-      const gain = masterRef.current
-      const ctx  = ctxRef.current
-      gain.gain.cancelScheduledValues(ctx.currentTime)
-      gain.gain.setValueAtTime(gain.gain.value, ctx.currentTime)
-      gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.8)
+    try { playerRef.current?.stopVideo() } catch (_) {}
+    try { playerRef.current?.destroy()   } catch (_) {}
+    playerRef.current = null
+    if (containerRef.current) {
+      containerRef.current.remove()
+      containerRef.current = null
     }
-    setTimeout(() => {
-      try { sourceRef.current?.stop()      } catch (_) {}
-      try { masterRef.current?.disconnect() } catch (_) {}
-      try { ctxRef.current?.close()         } catch (_) {}
-      sourceRef.current = null
-      masterRef.current = null
-      ctxRef.current    = null
-      statusRef.current = 'idle'
-    }, 850)
+    statusRef.current = 'idle'
   }, [])
 
-  // ── Fetch + decode with per-mode cache ────────────────────────────────────
-  const getBuffer = useCallback(async (
-    ctx: AudioContext,
-    mode: SoundMode,
-  ): Promise<AudioBuffer> => {
-    if (bufferCacheRef.current[mode]) {
-      return bufferCacheRef.current[mode]!
-    }
-    const option = SOUND_OPTIONS.find(o => o.id === mode)!
-    const response = await fetch(option.file)
-    if (!response.ok) {
-      throw new Error(`Audio fetch failed: ${response.status} — ${option.file}`)
-    }
-    const arrayBuffer  = await response.arrayBuffer()
-    const audioBuffer  = await ctx.decodeAudioData(arrayBuffer)
-    bufferCacheRef.current[mode] = audioBuffer
-    return audioBuffer
-  }, [])
-
-  // ── Play ──────────────────────────────────────────────────────────────────
   const play = useCallback(async (mode: SoundMode) => {
-    // Hard-stop any previous session immediately (new track starts right away)
-    try { sourceRef.current?.stop()      } catch (_) {}
-    try { masterRef.current?.disconnect() } catch (_) {}
-    try { ctxRef.current?.close()         } catch (_) {}
-    sourceRef.current = null
-    masterRef.current = null
-    ctxRef.current    = null
-
+    stop()
     statusRef.current = 'loading'
 
-    const ctx = new AudioContext()
-    ctxRef.current = ctx
+    const option = SOUND_OPTIONS.find(o => o.id === mode)!
 
-    // Master gain — starts silent for smooth fade-in
-    const master = ctx.createGain()
-    master.gain.setValueAtTime(0, ctx.currentTime)
-    master.connect(ctx.destination)
-    masterRef.current = master
+    // Hidden container div — YouTube IFrame API needs a real DOM node
+    const container = document.createElement('div')
+    container.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;'
+    document.body.appendChild(container)
+    containerRef.current = container
 
     try {
-      const buffer = await getBuffer(ctx, mode)
+      await loadYTApi()
 
-      // Guard: context may have been replaced while fetching
-      if (ctxRef.current !== ctx) return
+      // Guard: stop() may have been called while awaiting the API
+      if (containerRef.current !== container) return
 
-      const source  = ctx.createBufferSource()
-      source.buffer = buffer
-      source.loop   = true // Loop indefinitely until stopped
-
-      // Light EQ shaping per ambience type
-      const eq = ctx.createBiquadFilter()
-      switch (mode) {
-        case 'restaurant':
-          // Tame harsh high-mids from voices
-          eq.type            = 'highshelf'
-          eq.frequency.value = 5000
-          eq.gain.value      = -4
-          break
-        case 'rain':
-          // Boost low-end rumble slightly
-          eq.type            = 'lowshelf'
-          eq.frequency.value = 200
-          eq.gain.value      = 3
-          break
-        case 'birds':
-          // Remove low-frequency handling noise
-          eq.type            = 'highpass'
-          eq.frequency.value = 120
-          break
-      }
-
-      source.connect(eq)
-      eq.connect(master)
-      source.start(0)
-      sourceRef.current = source
-      statusRef.current = 'playing'
-
-      // Fade in over 2.5 s
-      master.gain.linearRampToValueAtTime(0.75, ctx.currentTime + 2.5)
-
-      source.onended = () => {
-        if (statusRef.current === 'playing') statusRef.current = 'idle'
-      }
+      playerRef.current = new window.YT.Player(container, {
+        height: '1',
+        width: '1',
+        videoId: option.videoId,
+        playerVars: {
+          autoplay: 1,
+          controls: 0,
+          disablekb: 1,
+          fs: 0,
+          iv_load_policy: 3,
+          modestbranding: 1,
+          rel: 0,
+          playsinline: 1,
+        },
+        events: {
+          onReady: (e) => {
+            e.target.setVolume(65)
+            e.target.playVideo()
+            statusRef.current = 'playing'
+          },
+          onStateChange: (e) => {
+            // YT.PlayerState.ENDED === 0 — loop the video
+            if (e.data === 0) playerRef.current?.playVideo()
+          },
+          onError: () => {
+            statusRef.current = 'error'
+          },
+        },
+      })
     } catch (err) {
-      console.error('[useAudio] Playback error:', err)
+      console.error('[useAudio] YouTube player error:', err)
       statusRef.current = 'error'
-      try { ctx.close() } catch (_) {}
-      if (ctxRef.current === ctx) {
-        ctxRef.current = null
-      }
     }
-  }, [getBuffer])
+  }, [stop])
 
   return { play, stop, statusRef }
 }
+
