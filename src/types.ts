@@ -7,6 +7,7 @@ export interface Preset {
 }
 
 export const PRESETS: Preset[] = [
+  { label: 'The Test (1m work + 1m rest)',  workMinutes: 1, restMinutes: 1  },
   { label: 'The Classic (25m work + 5m rest)',  workMinutes: 25, restMinutes: 5  },
   { label: 'The Dash (15m work + 5m rest)', workMinutes: 15, restMinutes: 5 },
   { label: 'The Remix (45m work + 15m rest)', workMinutes: 45, restMinutes: 15 },

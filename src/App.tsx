@@ -21,6 +21,7 @@ const App = () => {
   const [running, setRunning] = useState(false)
   const [soundMode, setSoundMode] = useState<SoundMode>('rain')
   const [task, setTask] = useState('')
+  const [completedCount, setCompletedCount] = useState(0)
 
   const { play, stop } = useAudio()
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -54,6 +55,7 @@ const App = () => {
   // Work → Rest phase transition
   useEffect(() => {
     if (remaining === 0 && phase === 'work') {
+      setCompletedCount(c => c + 1)
       const restSecs = PRESETS[presetIdx].restMinutes * 60
       setTimeout(() => {
         setPhase('rest')
@@ -70,6 +72,7 @@ const App = () => {
     setRunning(false)
     stop()
     setPhase('work')
+    setCompletedCount(0)
     const secs = PRESETS[idx].workMinutes * 60
     setTotal(secs)
     setRemaining(secs)
@@ -136,6 +139,7 @@ const App = () => {
             isRunning={running}
             phase={phase}
             dark={dark}
+            completedCount={completedCount}
           />
         </div>
 
