@@ -40,10 +40,8 @@ const App = () => {
     intervalRef.current = setInterval(() => {
       setRemaining(prev => {
         if (prev <= 1) {
-          // Phase complete
+          // Phase complete — transitions handled by useEffects below
           clearInterval(intervalRef.current!)
-          setRunning(false)
-          stop()
           return 0
         }
         return prev - 1
@@ -56,11 +54,27 @@ const App = () => {
   useEffect(() => {
     if (remaining === 0 && phase === 'work') {
       setCompletedCount(c => c + 1)
+      setRunning(false)
       const restSecs = PRESETS[presetIdx].restMinutes * 60
       setTimeout(() => {
         setPhase('rest')
         setTotal(restSecs)
         setRemaining(restSecs)
+        setRunning(true)
+        play(soundMode)
+      }, 1000)
+    }
+  }, [remaining, phase, presetIdx, play, soundMode])
+
+  // Rest → Work phase transition (auto-restart next pomodoro)
+  useEffect(() => {
+    if (remaining === 0 && phase === 'rest') {
+      setRunning(false)
+      const workSecs = PRESETS[presetIdx].workMinutes * 60
+      setTimeout(() => {
+        setPhase('work')
+        setTotal(workSecs)
+        setRemaining(workSecs)
         setRunning(true)
         play(soundMode)
       }, 1000)

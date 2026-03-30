@@ -18,7 +18,7 @@ export default function CircularTimer({ totalSeconds, remainingSeconds, isRunnin
 
   // Tree rings geometry
   const RING_WIDTH = 2
-  const RING_SPACING = 5   // center-to-center distance between adjacent rings (width + 3px gap)
+  const RING_SPACING = RING_WIDTH   // center-to-center = width → rings are flush, no gap
   const RING_GAP = 4       // gap from outer edge of progress arc to first ring center
   const progressOuterR = R + (STROKE + 1) / 2  // outer edge of progress stroke from center
   const ringStartR = progressOuterR + RING_GAP + RING_WIDTH / 2
