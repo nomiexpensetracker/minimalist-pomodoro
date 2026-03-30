@@ -6,6 +6,7 @@ import { PRESETS } from './types'
 import type { Phase } from './types'
 import { useAudio, SoundMode } from './useAudio'
 
+import TaskDisplay from "./components/task-display"
 import QuoteDisplay from "./components/quote-display"
 import CircularTimer from './components/circular-timer'
 import SoundSelector from './components/ambience-selector'
@@ -19,6 +20,7 @@ const App = () => {
   const [total, setTotal] = useState(PRESETS[0].workMinutes * 60)
   const [running, setRunning] = useState(false)
   const [soundMode, setSoundMode] = useState<SoundMode>('rain')
+  const [task, setTask] = useState('')
 
   const { play, stop } = useAudio()
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -115,16 +117,16 @@ const App = () => {
       </header>
 
       {/* ── Main ───────────────────────────────────────── */}
-      <main className="flex-1 flex flex-col items-center justify-between px-4 sm:px-8 py-8 sm:py-12 gap-6 sm:gap-8 animate-fade-in">
+      <main className="flex-1 flex flex-col items-center justify-between px-8 py-12 gap-6 sm:gap-8 animate-fade-in">
 
         {/* Title */}
-        <div className="text-center flex flex-col items-center gap-4 w-full max-w-md">
+        <article className="text-center flex flex-col items-center gap-4 w-full max-w-md">
           <h1 className={`font-bold text-3xl sm:text-4xl md:text-5xl ${dark ? 'text-forest-200' : 'text-forest-800'}`}>
             Pomodoro
           </h1>
-          {/* Today's Quote */}
-          <QuoteDisplay dark={dark} />
-        </div>
+          {/* Today's Quote / Active Task */}
+          {running ? <TaskDisplay dark={dark} task={task} /> : <QuoteDisplay dark={dark} />}
+        </article>
 
         {/* Timer */}
         <div className="animate-slide-up">
@@ -143,8 +145,24 @@ const App = () => {
           {!running && (
             <div className="relative flex flex-col items-center gap-2">
               <h4 className={`text-xs tracking-widest uppercase font-medium ${dark ? 'text-forest-600' : 'text-forest-400'}`}>
-                Pomodoro Preset
+                What are you working on?
               </h4>
+              {/* Input Task */}
+              <input
+                type="text"
+                placeholder="Enter your task"
+                value={task}
+                onChange={e => setTask(e.target.value)}
+                maxLength={80}
+                className={`
+                  w-full text-sm font-normal py-2.5 px-4 rounded-full border
+                  focus:outline-none focus:ring-2 focus:ring-forest-500/40 transition-all
+                  disabled:opacity-60 disabled:cursor-not-allowed
+                  ${dark
+                    ? 'bg-forest-900/80 border-forest-700 text-forest-200 placeholder-forest-500'
+                    : 'bg-white/80 border-forest-200 text-forest-700 placeholder-forest-400'}
+                `}
+              />
               <select
                 value={presetIdx}
                 onChange={e => handlePresetChange(Number(e.target.value))}
